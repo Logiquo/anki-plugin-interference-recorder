@@ -3,8 +3,16 @@
 Interference Recorder is an Anki Desktop add-on for recording cases where one card is
 mistaken for another.
 
-The current dummy implementation adds **Tools → Interference Recorder**. Selecting it
-shows a confirmation message that the add-on has loaded successfully.
+The current implementation provides:
+
+- **Tools → Interference Recorder** as an add-on loading check.
+- **Record Interference** in the Reviewer context menu on the answer side.
+- The configurable Reviewer shortcut `0` on the answer side.
+- Anki-native card search with debounce and paginated, unlimited matching results.
+- A split search view with results on the left and the selected card's rendered back on the right.
+- A temporary confirmation showing the selected A/B Card IDs and Note IDs.
+
+Scheduling and interference persistence are not implemented yet.
 
 ## Development
 
