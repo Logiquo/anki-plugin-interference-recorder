@@ -8,10 +8,12 @@ from typing import Any
 from anki.errors import AnkiException
 from aqt import gui_hooks, mw
 from aqt.main import MainWindowState
+from aqt.operations.scheduling import grade_now
 from aqt.qt import QAction, QMenu
 from aqt.reviewer import Reviewer
-from aqt.utils import showInfo
+from aqt.utils import showInfo, showWarning
 
+from .confirmation_dialog import ConfirmInterferenceDialog
 from .search_dialog import CardSearchDialog
 
 ADDON_NAME = "Interference Recorder"
@@ -44,7 +46,7 @@ def _reviewer_is_on_answer(reviewer: Reviewer) -> bool:
 
 
 def _record_interference(reviewer: Reviewer) -> None:
-    """Select a target card and report both identifiers for phase two."""
+    """Select and confirm a paired Again action."""
     if not _reviewer_is_on_answer(reviewer):
         return
 
@@ -74,11 +76,40 @@ def _record_interference(reviewer: Reviewer) -> None:
         showInfo("The selected card no longer exists.", parent=mw)
         return
 
-    showInfo(
-        "Interference selection\n\n"
-        f"A — Card ID: {source_card.id}, Note ID: {source_card.nid}\n"
-        f"B — Card ID: {target_card.id}, Note ID: {target_card.nid}",
+    confirmation = ConfirmInterferenceDialog(
+        source_card=source_card,
+        target_card=target_card,
+        reviewer=reviewer,
         parent=mw,
+    )
+    if not confirmation.exec():
+        return
+
+    if not _reviewer_is_on_answer(reviewer) or reviewer.card is None:
+        showWarning("The current review card changed before confirmation.", parent=mw)
+        return
+    if reviewer.card.id != source_card.id:
+        showWarning("The current review card changed before confirmation.", parent=mw)
+        return
+
+    reviewer.state = "transition"
+
+    def on_success(_changes: object) -> None:
+        if reviewer.card is not None:
+            reviewer.card.load()
+        reviewer._after_answering(1)
+
+    def on_failure(error: Exception) -> None:
+        reviewer.state = "answer"
+        showWarning(f"Could not grade both cards Again: {error}", parent=mw)
+
+    operation = grade_now(
+        parent=mw,
+        card_ids=[source_card.id, target_card.id],
+        ease=1,
+    )
+    operation.success(on_success).failure(on_failure).run_in_background(
+        initiator=reviewer
     )
 
 
