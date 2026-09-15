@@ -179,7 +179,7 @@ def ensure_storage(collection: Collection) -> tuple[DeckId, NotetypeDict]:
     return deck_id, existing_notetype
 
 
-def _decode_events(raw: str, shard_id: str) -> list[InterferenceEvent]:
+def decode_events(raw: str, shard_id: str) -> list[InterferenceEvent]:
     try:
         values = json.loads(raw)
     except json.JSONDecodeError as error:
@@ -223,10 +223,10 @@ def append_event(
 
     latest_events: list[InterferenceEvent] = []
     if shards:
-        latest_events = _decode_events(shards[-1][1][EVENTS_FIELD], shards[-1][1][ID_FIELD])
+        latest_events = decode_events(shards[-1][1][EVENTS_FIELD], shards[-1][1][ID_FIELD])
 
     for _, note in shards:
-        if any(item.event_id == event.event_id for item in _decode_events(note[EVENTS_FIELD], note[ID_FIELD])):
+        if any(item.event_id == event.event_id for item in decode_events(note[EVENTS_FIELD], note[ID_FIELD])):
             return _merge_latest(collection, undo_target)
 
     if shards and len(latest_events) < EVENTS_PER_PART:
@@ -305,7 +305,7 @@ def iter_interference_events(collection: Collection) -> list[InterferenceEvent]:
     for note_id in collection.find_notes(f'note:"{DATA_NAME}"'):
         note = collection.get_note(note_id)
         shard_id = note[ID_FIELD]
-        for event in _decode_events(note[EVENTS_FIELD], shard_id):
+        for event in decode_events(note[EVENTS_FIELD], shard_id):
             if event.event_id not in seen:
                 seen.add(event.event_id)
                 events.append(event)

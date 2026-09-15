@@ -8,12 +8,13 @@ from typing import Any
 from anki.errors import AnkiException
 from aqt import gui_hooks, mw
 from aqt.main import MainWindowState
-from aqt.operations import CollectionOp
-from aqt.qt import QAction, QMenu
+from aqt.operations import CollectionOp, QueryOp
+from aqt.qt import QDialog, QDialogButtonBox, QLabel, QMenu, QVBoxLayout
 from aqt.reviewer import Reviewer
-from aqt.utils import showInfo, showWarning
+from aqt.utils import askUser, showInfo, showWarning
 
 from .confirmation_dialog import ConfirmInterferenceDialog
+from .maintenance import CleanupPlan, execute_cleanup, scan_missing_card_records
 from .search_dialog import CardSearchDialog
 from .storage import ensure_storage, get_or_create_writer_id, grade_and_record, new_event
 
@@ -21,25 +22,95 @@ ADDON_NAME = "Interference Recorder"
 ACTION_NAME = "Record Interference"
 
 _hooks_registered = False
-_tools_action: QAction | None = None
+_tools_menu: QMenu | None = None
+_graph_dialog: QDialog | None = None
 
 
-def _show_dummy_window() -> None:
-    """Show a placeholder until the graph UI is implemented."""
-    showInfo(f"{ADDON_NAME} is installed and running.", parent=mw)
+def _show_graph_placeholder() -> None:
+    """Show one non-modal placeholder window for the future graph."""
+    global _graph_dialog
+
+    if _graph_dialog is None:
+        dialog = QDialog(mw)
+        dialog.setWindowTitle("Interference Graph")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Graph visualization is not implemented yet.", dialog))
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
+        buttons.rejected.connect(dialog.close)
+        layout.addWidget(buttons)
+        _graph_dialog = dialog
+
+    _graph_dialog.show()
+    _graph_dialog.raise_()
+    _graph_dialog.activateWindow()
+
+
+def _cleanup_summary(plan: CleanupPlan) -> str:
+    return (
+        f"Scanned shards: {plan.scanned_shards}\n"
+        f"Total events: {plan.total_events}\n"
+        f"Missing-card events to remove: {plan.missing_events}\n"
+        f"Affected shards: {plan.affected_shards}\n"
+        f"Empty shards to delete: {plan.empty_shards}"
+    )
+
+
+def _clean_missing_card_records() -> None:
+    """Scan, confirm, and clean invalid events without initiating sync."""
+
+    def scan_succeeded(plan: CleanupPlan) -> None:
+        if not plan.missing_events:
+            showInfo(f"{_cleanup_summary(plan)}\n\nNo cleanup is needed.", parent=mw)
+            return
+
+        warning = (
+            f"{_cleanup_summary(plan)}\n\n"
+            "This will delete interference link records that reference cards "
+            "which no longer exist. Before continuing, manually sync every "
+            "device. After cleanup, manually sync again.\n\n"
+            "Interference Recorder will not start or manage synchronization.\n\n"
+            "Continue with cleanup?"
+        )
+        if not askUser(warning, parent=mw, defaultno=True, title=ADDON_NAME):
+            return
+
+        def cleanup_succeeded(_changes: object) -> None:
+            showInfo(
+                f"Removed {plan.missing_events} event(s) from "
+                f"{plan.affected_shards} shard(s); deleted "
+                f"{plan.empty_shards} empty shard(s).\n\n"
+                "Please manually sync again.",
+                parent=mw,
+            )
+
+        CollectionOp(mw, lambda col: execute_cleanup(col, plan)).success(
+            cleanup_succeeded
+        ).failure(
+            lambda error: showWarning(f"Could not clean records: {error}", parent=mw)
+        ).run_in_background()
+
+    QueryOp(parent=mw, op=scan_missing_card_records, success=scan_succeeded).with_progress(
+        "Scanning interference records…"
+    ).failure(
+        lambda error: showWarning(f"Could not scan records: {error}", parent=mw)
+    ).run_in_background()
 
 
 def _add_tools_menu_action() -> None:
     """Add the add-on's placeholder action after Anki initializes its UI."""
-    global _tools_action
+    global _tools_menu
 
-    if _tools_action is not None:
+    if _tools_menu is not None:
         return
 
-    action = QAction(ADDON_NAME, mw)
-    action.triggered.connect(_show_dummy_window)
-    mw.form.menuTools.addAction(action)
-    _tools_action = action
+    menu = mw.form.menuTools.addMenu(ADDON_NAME)
+    assert menu is not None
+    clean_action = menu.addAction("Clean Missing Card Records…")
+    graph_action = menu.addAction("Show Graph")
+    assert clean_action is not None and graph_action is not None
+    clean_action.triggered.connect(_clean_missing_card_records)
+    graph_action.triggered.connect(_show_graph_placeholder)
+    _tools_menu = menu
 
 
 def _reviewer_is_on_answer(reviewer: Reviewer) -> bool:

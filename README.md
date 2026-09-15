@@ -5,7 +5,7 @@ mistaken for another.
 
 The current implementation provides:
 
-- **Tools → Interference Recorder** as an add-on loading check.
+- **Tools → Interference Recorder** as a submenu with data cleanup and graph entries.
 - **Record Interference** in the Reviewer context menu on the answer side.
 - The configurable Reviewer shortcut `0` on the answer side.
 - Anki-native card search with debounce and paginated, unlimited matching results.
@@ -22,6 +22,18 @@ Interference events are stored in Anki-native, synchronized log shards:
 - A single **Record Interference** undo entry covers both Again ratings and the appended event.
 
 Graph aggregation and display are not implemented yet.
+
+## Data maintenance
+
+Choose **Tools → Interference Recorder → Clean Missing Card Records…** to remove
+events whose source or target Card ID no longer exists. The scan does not merge or
+renumber shards; a shard with no remaining events is deleted. The entire cleanup is
+one Anki undo step.
+
+The dialog asks you to manually sync all devices before cleaning and manually sync
+again afterward. The add-on never starts or controls Anki synchronization itself.
+
+**Show Graph** currently opens a single placeholder window.
 
 ## Development
 
