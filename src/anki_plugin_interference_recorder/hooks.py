@@ -8,13 +8,14 @@ from typing import Any
 from anki.errors import AnkiException
 from aqt import gui_hooks, mw
 from aqt.main import MainWindowState
-from aqt.operations.scheduling import grade_now
+from aqt.operations import CollectionOp
 from aqt.qt import QAction, QMenu
 from aqt.reviewer import Reviewer
 from aqt.utils import showInfo, showWarning
 
 from .confirmation_dialog import ConfirmInterferenceDialog
 from .search_dialog import CardSearchDialog
+from .storage import ensure_storage, get_or_create_writer_id, grade_and_record, new_event
 
 ADDON_NAME = "Interference Recorder"
 ACTION_NAME = "Record Interference"
@@ -72,8 +73,13 @@ def _record_interference(reviewer: Reviewer) -> None:
 
     try:
         target_card = collection.get_card(target_card_id)
+        ensure_storage(collection)
+        writer_id = get_or_create_writer_id()
     except AnkiException:
         showInfo("The selected card no longer exists.", parent=mw)
+        return
+    except (OSError, RuntimeError) as error:
+        showWarning(f"Could not initialize interference storage: {error}", parent=mw)
         return
 
     confirmation = ConfirmInterferenceDialog(
@@ -93,6 +99,7 @@ def _record_interference(reviewer: Reviewer) -> None:
         return
 
     reviewer.state = "transition"
+    event = new_event(source_card.id, target_card.id)
 
     def on_success(_changes: object) -> None:
         if reviewer.card is not None:
@@ -103,10 +110,9 @@ def _record_interference(reviewer: Reviewer) -> None:
         reviewer.state = "answer"
         showWarning(f"Could not grade both cards Again: {error}", parent=mw)
 
-    operation = grade_now(
-        parent=mw,
-        card_ids=[source_card.id, target_card.id],
-        ease=1,
+    operation = CollectionOp(
+        mw,
+        lambda col: grade_and_record(col, event, writer_id),
     )
     operation.success(on_success).failure(on_failure).run_in_background(
         initiator=reviewer

@@ -10,9 +10,18 @@ The current implementation provides:
 - The configurable Reviewer shortcut `0` on the answer side.
 - Anki-native card search with debounce and paginated, unlimited matching results.
 - A split search view with results on the left and the selected card's rendered back on the right.
-- A temporary confirmation showing the selected A/B Card IDs and Note IDs.
+- A confirmation view showing the rendered backs of A and B side by side.
+- One translated Again button, Anki's configured Again shortcut, and a Cancel button.
+- One Anki `grade_now` operation that grades A and B Again with a single undo step.
 
-Scheduling and interference persistence are not implemented yet.
+Interference events are stored in Anki-native, synchronized log shards:
+
+- Dedicated deck, deck preset, and note type: `_Interference_Link`.
+- One local installation UUID identifies each writer.
+- Each suspended data card stores up to 500 JSON events before a new numbered part is created.
+- A single **Record Interference** undo entry covers both Again ratings and the appended event.
+
+Graph aggregation and display are not implemented yet.
 
 ## Development
 
