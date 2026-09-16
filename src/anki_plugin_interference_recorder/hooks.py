@@ -9,11 +9,12 @@ from anki.errors import AnkiException
 from aqt import gui_hooks, mw
 from aqt.main import MainWindowState
 from aqt.operations import CollectionOp, QueryOp
-from aqt.qt import QDialog, QDialogButtonBox, QLabel, QMenu, QVBoxLayout
+from aqt.qt import QMenu
 from aqt.reviewer import Reviewer
 from aqt.utils import askUser, showInfo, showWarning
 
 from .confirmation_dialog import ConfirmInterferenceDialog
+from .graph_dialog import InterferenceGraphDialog
 from .maintenance import CleanupPlan, execute_cleanup, scan_missing_card_records
 from .search_dialog import CardSearchDialog
 from .storage import ensure_storage, get_or_create_writer_id, grade_and_record, new_event
@@ -23,22 +24,15 @@ ACTION_NAME = "Record Interference"
 
 _hooks_registered = False
 _tools_menu: QMenu | None = None
-_graph_dialog: QDialog | None = None
+_graph_dialog: InterferenceGraphDialog | None = None
 
 
-def _show_graph_placeholder() -> None:
-    """Show one non-modal placeholder window for the future graph."""
+def _show_graph() -> None:
+    """Show or reactivate the singleton graph window."""
     global _graph_dialog
 
     if _graph_dialog is None:
-        dialog = QDialog(mw)
-        dialog.setWindowTitle("Interference Graph")
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("Graph visualization is not implemented yet.", dialog))
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, parent=dialog)
-        buttons.rejected.connect(dialog.close)
-        layout.addWidget(buttons)
-        _graph_dialog = dialog
+        _graph_dialog = InterferenceGraphDialog(__name__, parent=mw)
 
     _graph_dialog.show()
     _graph_dialog.raise_()
@@ -97,19 +91,20 @@ def _clean_missing_card_records() -> None:
 
 
 def _add_tools_menu_action() -> None:
-    """Add the add-on's placeholder action after Anki initializes its UI."""
+    """Add the add-on submenu after Anki initializes its UI."""
     global _tools_menu
 
     if _tools_menu is not None:
         return
 
+    mw.addonManager.setWebExports(__name__, r"web/.*")
     menu = mw.form.menuTools.addMenu(ADDON_NAME)
     assert menu is not None
     clean_action = menu.addAction("Clean Missing Card Records…")
     graph_action = menu.addAction("Show Graph")
     assert clean_action is not None and graph_action is not None
     clean_action.triggered.connect(_clean_missing_card_records)
-    graph_action.triggered.connect(_show_graph_placeholder)
+    graph_action.triggered.connect(_show_graph)
     _tools_menu = menu
 
 

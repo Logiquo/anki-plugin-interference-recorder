@@ -21,7 +21,15 @@ Interference events are stored in Anki-native, synchronized log shards:
 - Each suspended data card stores up to 500 JSON events before a new numbered part is created.
 - A single **Record Interference** undo entry covers both Again ratings and the appended event.
 
-Graph aggregation and display are not implemented yet.
+The **Show Graph** entry builds an interactive card graph from interference events and
+successful normal reviews. Scores decay according to the configured `decay` value;
+node and edge colors run from green at lower scores to red at higher scores. The graph
+uses an automatic non-overlapping fCoSE layout, supports pan and zoom, and shows the
+selected card's rendered back on the right.
+
+From a selected node, choose an edge-score threshold to create a real Anki filtered
+deck containing that card and its qualifying direct neighbors. Leaving the optional
+name blank uses Anki's own default filtered-deck name.
 
 ## Data maintenance
 
@@ -33,7 +41,9 @@ one Anki undo step.
 The dialog asks you to manually sync all devices before cleaning and manually sync
 again afterward. The add-on never starts or controls Anki synchronization itself.
 
-**Show Graph** currently opens a single placeholder window.
+Graph assets are bundled locally, so graph display does not require network access.
+The bundled Cytoscape.js, layout-base, cose-base, and cytoscape-fcose components are
+distributed under their respective MIT licenses in `web/vendor/`.
 
 ## Development
 
