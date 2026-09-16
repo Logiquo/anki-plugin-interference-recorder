@@ -1,0 +1,146 @@
+name: Release Anki add-on
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from pyproject.toml, without the leading v
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Test, package, and release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the selected commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Require the main branch
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Releases must be dispatched from the main branch." >&2
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.13"
+          enable-cache: true
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $INPUT_VERSION" >&2
+            exit 1
+          fi
+
+          PROJECT_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pyproject.toml)"
+          if [[ "$PROJECT_VERSION" != "$INPUT_VERSION" ]]; then
+            echo "Input version $INPUT_VERSION does not match pyproject.toml ($PROJECT_VERSION)." >&2
+            exit 1
+          fi
+
+          TAG="v$INPUT_VERSION"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists." >&2
+            exit 1
+          fi
+
+          echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "asset=interference-recorder-$INPUT_VERSION.ankiaddon" >> "$GITHUB_OUTPUT"
+
+      - name: Install development dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Run Python checks
+        run: |
+          uv run ruff check src tests
+          uv run mypy src tests
+          uv run pytest -q
+
+      - name: Check graph JavaScript syntax
+        run: node --check src/anki_plugin_interference_recorder/web/graph.js
+
+      - name: Build .ankiaddon package
+        id: package
+        shell: bash
+        env:
+          ASSET: ${{ steps.version.outputs.asset }}
+        run: |
+          STAGING="$RUNNER_TEMP/interference-recorder"
+          OUTPUT="$GITHUB_WORKSPACE/$ASSET"
+          mkdir -p "$STAGING"
+
+          rsync -a \
+            --exclude='meta.json' \
+            --exclude='user_files/' \
+            --exclude='__pycache__/' \
+            --exclude='*.pyc' \
+            src/anki_plugin_interference_recorder/ "$STAGING/"
+          cp LICENSE "$STAGING/LICENSE.txt"
+
+          (
+            cd "$STAGING"
+            zip -r "$OUTPUT" *
+          )
+
+          echo "path=$OUTPUT" >> "$GITHUB_OUTPUT"
+
+      - name: Verify package contents
+        shell: bash
+        env:
+          ASSET: ${{ steps.version.outputs.asset }}
+        run: |
+          CONTENTS="$(unzip -Z1 "$ASSET")"
+          printf '%s\n' "$CONTENTS"
+
+          printf '%s\n' "$CONTENTS" | grep -Fx '__init__.py' >/dev/null
+          printf '%s\n' "$CONTENTS" | grep -Fx 'manifest.json' >/dev/null
+          printf '%s\n' "$CONTENTS" | grep -Fx 'config.json' >/dev/null
+          printf '%s\n' "$CONTENTS" | grep -Fx 'LICENSE.txt' >/dev/null
+          printf '%s\n' "$CONTENTS" | grep -Fx 'web/graph.js' >/dev/null
+
+          if printf '%s\n' "$CONTENTS" | grep -E '(^|/)(\.codex|meta\.json|user_files|__pycache__)(/|$)|\.pyc$'; then
+            echo "The package contains a forbidden development or user file." >&2
+            exit 1
+          fi
+
+      - name: Create and push tag
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --annotate "$TAG" --message "Interference Recorder $TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          ASSET: ${{ steps.version.outputs.asset }}
+        run: |
+          gh release create "$TAG" "$ASSET" \
+            --verify-tag \
+            --title "Interference Recorder $TAG" \
+            --generate-notes
